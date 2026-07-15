@@ -1,0 +1,33 @@
+FROM python:3.13-slim-bullseye
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV EXIFTOOL_PATH=/usr/bin/exiftool
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
+ENV MARKITDOWN_ENABLE_PLUGINS=true
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    exiftool \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY . /app
+
+# Install MarkItDown from this repository's source code.
+RUN python -m pip install --upgrade pip && \
+    pip install --no-cache-dir "/app/packages/markitdown[all]"
+
+# Install the MCP dependency, then install the MCP server from this repository.
+# --no-deps prevents pip from replacing the local MarkItDown package with PyPI.
+RUN pip install --no-cache-dir "mcp~=1.8.0" && \
+    pip install --no-cache-dir --no-deps /app/packages/markitdown-mcp
+
+WORKDIR /workdir
+
+USER nobody:nogroup
+
+EXPOSE 10000
+
+CMD ["sh", "-c", "exec markitdown-mcp --http --host 0.0.0.0 --port ${PORT:-10000}"]

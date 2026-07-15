@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: markitdown-mcp
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    autoDeployTrigger: commit
+    envVars:
+      - key: MARKITDOWN_ENABLE_PLUGINS
+        value: "true"
