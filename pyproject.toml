@@ -11,11 +11,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-markitdown = {
-    git = "https://github.com/marouanecarmed/markitdown.git",
-    branch = "main",
-    subdirectory = "packages/markitdown"
-}
+markitdown = { git = "https://github.com/marouanecarmed/markitdown.git", branch = "main", subdirectory = "packages/markitdown" }
 
 [tool.fastapi]
 entrypoint = "main:app"
