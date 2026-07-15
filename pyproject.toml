@@ -7,11 +7,14 @@ requires-python = "==3.12.*"
 dependencies = [
     "fastapi[standard]",
     "python-multipart",
-    "markitdown[pdf,docx,pptx,xlsx,xls,outlook]",
+    "openai",
+    "markitdown-ocr",
+    "markitdown[pdf,doc,docx,pptx,xlsx,xls,outlook]",
 ]
 
 [tool.uv.sources]
 markitdown = { git = "https://github.com/marouanecarmed/markitdown.git", branch = "main", subdirectory = "packages/markitdown" }
+markitdown-ocr = { git = "https://github.com/marouanecarmed/markitdown.git", branch = "main", subdirectory = "packages/markitdown-ocr" }
 
 [tool.fastapi]
 entrypoint = "main:app"
