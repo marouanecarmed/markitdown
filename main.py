@@ -9,22 +9,16 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
-
 from markitdown import MarkItDown
 
 
 app = FastAPI(
     title="MarkItDown API",
-    description="HTTP API backed by the local MarkItDown source repository.",
     version="1.0.0",
 )
 
-# Keep plugins disabled unless you explicitly install and configure them.
 converter = MarkItDown(enable_plugins=False)
-
-# The free instance has limited memory. Process one conversion at a time.
-conversion_lock = asyncio.Lock()
+conversion_gate = asyncio.Semaphore(1)
 
 MAX_UPLOAD_BYTES = int(
     os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024))
@@ -49,27 +43,21 @@ ALLOWED_EXTENSIONS = {
 }
 
 
-class ConversionResponse(BaseModel):
-    filename: str
-    bytes: int
-    markdown: str
-
-
 def require_api_key(
     x_api_key: Annotated[
         str | None,
         Header(alias="X-API-Key"),
     ] = None,
 ) -> None:
-    expected_key = os.getenv("API_KEY")
+    expected = os.getenv("API_KEY")
 
-    if not expected_key:
+    if not expected:
         raise HTTPException(
             status_code=503,
-            detail="API_KEY is not configured on the server.",
+            detail="API_KEY is not configured.",
         )
 
-    if not secrets.compare_digest(x_api_key or "", expected_key):
+    if not secrets.compare_digest(x_api_key or "", expected):
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing API key.",
@@ -81,8 +69,8 @@ def root() -> dict[str, str]:
     return {
         "service": "MarkItDown API",
         "status": "running",
-        "documentation": "/docs",
-        "conversion_endpoint": "/convert",
+        "docs": "/docs",
+        "convert": "/convert",
     }
 
 
@@ -93,19 +81,18 @@ def health() -> dict[str, str]:
 
 @app.post(
     "/convert",
-    response_model=ConversionResponse,
     dependencies=[Depends(require_api_key)],
 )
 async def convert_document(
-    file: Annotated[UploadFile, File(description="Document to convert")],
-) -> ConversionResponse:
-    original_filename = Path(file.filename or "upload").name
-    extension = Path(original_filename).suffix.lower()
+    file: Annotated[UploadFile, File()],
+) -> dict[str, str | int]:
+    filename = Path(file.filename or "upload").name
+    extension = Path(filename).suffix.lower()
 
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=415,
-            detail=f"Unsupported extension: {extension or 'none'}",
+            detail=f"Unsupported file extension: {extension or 'none'}",
         )
 
     temporary_path: Path | None = None
@@ -119,26 +106,18 @@ async def convert_document(
         ) as temporary_file:
             temporary_path = Path(temporary_file.name)
 
-            while True:
-                chunk = await file.read(1024 * 1024)
-
-                if not chunk:
-                    break
-
+            while chunk := await file.read(1024 * 1024):
                 uploaded_bytes += len(chunk)
 
                 if uploaded_bytes > MAX_UPLOAD_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=(
-                            f"File exceeds the "
-                            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit."
-                        ),
+                        detail="Uploaded file is too large.",
                     )
 
                 temporary_file.write(chunk)
 
-        async with conversion_lock:
+        async with conversion_gate:
             result = await run_in_threadpool(
                 converter.convert_local,
                 str(temporary_path),
@@ -146,15 +125,14 @@ async def convert_document(
 
         markdown = getattr(result, "markdown", None)
 
-        # Compatibility with older MarkItDown result objects.
         if markdown is None:
             markdown = getattr(result, "text_content", "")
 
-        return ConversionResponse(
-            filename=original_filename,
-            bytes=uploaded_bytes,
-            markdown=markdown,
-        )
+        return {
+            "filename": filename,
+            "bytes": uploaded_bytes,
+            "markdown": markdown,
+        }
 
     except HTTPException:
         raise
